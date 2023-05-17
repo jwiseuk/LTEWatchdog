@@ -61,12 +61,24 @@ namespace LTEWatchdog
         {
             connectionFailuresCount = 0; // Reset the count
         }
-
         private void InitializeLogger()
         {
             Directory.CreateDirectory(logFolderPath);
             string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
             logFilePath = Path.Combine(logFolderPath, $"log_{timestamp}.txt");
+
+            // Delete logs older than one month
+            string[] logFiles = Directory.GetFiles(logFolderPath, "log_*.txt");
+            DateTime oneMonthAgo = DateTime.Now.AddMonths(-1);
+            foreach (string file in logFiles)
+            {
+                DateTime fileCreationTime = File.GetCreationTime(file);
+                if (fileCreationTime < oneMonthAgo)
+                {
+                    File.Delete(file);
+                    _logger.LogInformation($"Deleted log file: {file}");
+                }
+            }
         }
 
         private bool CheckNetwork()
@@ -109,9 +121,36 @@ namespace LTEWatchdog
             }
         }
 
-        private static void PowerCycleLTE()
+        private void PowerCycleLTE()
         {
-         //USB device so unable to reboot via Windows. Will either need to telnet/serial connect and send an AT command. Waiting on info from supplier  
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "Disable-NetAdapter -InterfaceDescription '*quectel*' -Confirm:$false; Start-Sleep -Seconds 5; Enable-NetAdapter -InterfaceDescription '*quectel*' -Confirm:$false",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit();
+
+                    if (p.ExitCode == 0)
+                    {
+                        LogMessage("Network adapters with 'quectel' in their name were disabled and re-enabled successfully.");
+                    }
+                    else
+                    {
+                        LogMessage($"Error while power cycling network adapters. Exit code: {p.ExitCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error while power cycling network adapters: {ex.Message}");
+            }
         }
     }
 }

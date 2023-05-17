@@ -1,10 +1,52 @@
-using LTEWatchdog;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.ServiceProcess;
 
-IHost host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices(services =>
+namespace LTEWatchdog
+{
+    public class Program : ServiceBase
     {
-        services.AddHostedService<InternetConnectionWorker>();
-    })
-    .Build();
+        private IHost _host;
 
-await host.RunAsync();
+        public static void Main(string[] args)
+        {
+            var isService = !(Debugger.IsAttached || args.Contains("--console"));
+            if (isService)
+            {
+                Run(new Program());
+            }
+            else
+            {
+                CreateHostBuilder(args).Build().Run();
+            }
+        }
+
+        public static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+                .ConfigureServices((hostContext, services) =>
+                {
+                    services.AddHostedService<InternetConnectionWorker>();
+                })
+                .ConfigureLogging(logging =>
+                {
+                    logging.ClearProviders();
+                    logging.AddConsole();
+                });
+
+        protected override void OnStart(string[] args)
+        {
+            _host = CreateHostBuilder(args).Build();
+            _host.Start();
+        }
+
+        protected override void OnStop()
+        {
+            _host.StopAsync().GetAwaiter().GetResult();
+            _host.Dispose();
+        }
+    }
+}
