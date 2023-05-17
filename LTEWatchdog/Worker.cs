@@ -12,50 +12,61 @@ namespace LTEWatchdog
 {
     public class InternetConnectionWorker : BackgroundService
     {
+        // Configure Script Variables
+        static int ConnectionFailureLimit = 5;
+        static string TestAddress = "8.8.8.8";
+
         private readonly ILogger<InternetConnectionWorker> _logger;
         private string logFolderPath = @"C:\LTEWatchdog_logs";
         private string? logFilePath;
         private int connectionFailuresCount;
         private Timer? resetCountTimer;
+        private Timer? executeTimer;
 
         public InternetConnectionWorker(ILogger<InternetConnectionWorker> logger)
         {
             _logger = logger;
             connectionFailuresCount = 0;
+
+            // Schedule the timer to reset the count every 10 minutes
+            resetCountTimer = new Timer(ResetCount, null, TimeSpan.Zero, TimeSpan.FromMinutes(10));
+
+            // Create a timer for executing the logic every 1 minute
+            executeTimer = new Timer(ExecuteTimerLogic, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             InitializeLogger();
 
-            // Schedule the timer to reset the count every 10 minutes
-            resetCountTimer = new Timer(ResetCount, null, TimeSpan.Zero, TimeSpan.FromMinutes(10));
+            // Wait for the cancellation token to be triggered
+            await Task.Delay(Timeout.Infinite, stoppingToken);
 
-            while (!stoppingToken.IsCancellationRequested)
+            // Stop and dispose the timer
+            executeTimer.Dispose();
+        }
+
+        private void ExecuteTimerLogic(object state)
+        {
+            bool isConnected = CheckNetwork();
+            if (isConnected)
             {
-                bool isConnected = CheckNetwork();
-                if (isConnected)
+                LogMessage("Internet connection is active.");
+                connectionFailuresCount = 0; // Reset the count when the connection is active
+            }
+            else
+            {
+                connectionFailuresCount++;
+                LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
+
+                if (connectionFailuresCount >= ConnectionFailureLimit)
                 {
-                    LogMessage("Internet connection is active.");
-                    connectionFailuresCount = 0; // Reset the count when the connection is active
+                    PowerCycleLTE();
+                    connectionFailuresCount = 0; // Reset the count after power cycling the device
                 }
-                else
-                {
-                    connectionFailuresCount++;
-                    LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
-
-                    if (connectionFailuresCount >= 5)  // How many times ping should fail in 10 minute window before executing restart. (default =5. Set to 1 for testing)
-                    {
-                        // Execute the method to power cycle the PCIe device
-                        PowerCycleLTE();
-
-                        connectionFailuresCount = 0; // Reset the count after power cycling the device
-                    }
-                }
-
-                await Task.Delay(1 * 60 * 1000, stoppingToken); // 1 minutes interval for pings
             }
         }
+
 
         private void ResetCount(object? state)
         {
@@ -74,10 +85,14 @@ namespace LTEWatchdog
             {
                 DateTime fileCreationTime = File.GetCreationTime(file);
                 if (fileCreationTime < oneMonthAgo)
-                {
-                    File.Delete(file);
-                    _logger.LogInformation($"Deleted log file: {file}");
-                }
+                    {
+                        File.Delete(file);
+                        _logger.LogInformation($"Deleted log file: {file}");
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"No Logs to be deleted");
+                    }
             }
         }
 
@@ -87,7 +102,7 @@ namespace LTEWatchdog
             {
                 using (Ping ping = new Ping())
                 {
-                    PingReply reply = ping.Send("8.8.8.8", 1000);
+                    PingReply reply = ping.Send(TestAddress, 1000);
 
                     if (reply != null && reply.Status == IPStatus.Success)
                     {
