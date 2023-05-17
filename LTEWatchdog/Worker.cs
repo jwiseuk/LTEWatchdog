@@ -6,6 +6,7 @@ using System.IO;
 using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace LTEWatchdog
 {
@@ -43,10 +44,10 @@ namespace LTEWatchdog
                     connectionFailuresCount++;
                     LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
 
-                    if (connectionFailuresCount >= 5)
+                    if (connectionFailuresCount >= 1)  // How many times ping should fail in 10 minute window before executing restart. (default =5. Set to 1 for testing)
                     {
                         // Execute the method to power cycle the PCIe device
-                        PowerCyclePcieDevice();
+                        PowerCycleLTE();
 
                         connectionFailuresCount = 0; // Reset the count after power cycling the device
                     }
@@ -108,112 +109,9 @@ namespace LTEWatchdog
             }
         }
 
-        private void PowerCyclePcieDevice()
+        private static void PowerCycleLTE()
         {
-
-            string slotNumber = "1"; // PCIe slot number
-
-            {
-
-                // Get the device ID from the specified PCIe slot
-                string deviceId = GetDeviceIdFromPciSlot(slotNumber);
-                if (deviceId != null)
-                {
-                    LogMessage($"Device ID in Slot {slotNumber}: {deviceId}");
-                }
-                else
-                {
-                    LogMessage($"No device found in Slot {slotNumber}.");
-                    return;
-                }
-
-                // Disable the device
-                bool disableResult = DisableDevice(deviceId);
-                if (disableResult)
-                {
-                    LogMessage("Device disabled successfully.");
-                }
-                else
-                {
-                    LogMessage("Failed to disable the device.");
-                    return;
-                }
-
-                // Wait for a few seconds (adjust the delay as needed)
-                System.Threading.Thread.Sleep(5000);
-
-                // Enable the device
-                bool enableResult = EnableDevice(deviceId);
-                if (enableResult)
-                {
-                    LogMessage("Device enabled successfully.");
-                }
-                else
-                {
-                    LogMessage("Failed to enable the device.");
-                    return;
-                }
-
-                Console.WriteLine("Power cycle complete.");
-            }
-        }
-
-        static string GetDeviceIdFromPciSlot(string slotNumber)
-        {
-            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT * FROM Win32_PCIControllerDevice WHERE Antecedent LIKE '%PCI\\\\BUS_0%Device_0%Function_" + slotNumber + "%'"))
-            {
-                foreach (ManagementObject controllerDevice in searcher.Get())
-                {
-                    foreach (ManagementObject device in controllerDevice.GetRelated("Win32_PnPEntity"))
-                    {
-                        return device["DeviceID"]?.ToString();
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        static bool DisableDevice(string deviceId)
-        {
-            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT * FROM Win32_PnPEntity WHERE DeviceID = '" + deviceId + "'"))
-            {
-                foreach (ManagementObject device in searcher.Get())
-                {
-                    try
-                    {
-                        device.InvokeMethod("Disable", default(object[]));
-                        return true;
-                    }
-                    catch (ManagementException ex)
-                    {
-                        Console.WriteLine("Failed to disable device: " + ex.Message);
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        static bool EnableDevice(string deviceId)
-        {
-            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT * FROM Win32_PnPEntity WHERE DeviceID = '" + deviceId + "'"))
-            {
-                foreach (ManagementObject device in searcher.Get())
-                {
-                    try
-                    {
-                        device.InvokeMethod("Enable", default(object[]));
-                        return true;
-                    }
-                    catch (ManagementException ex)
-                    {
-                        Console.WriteLine("Failed to enable device: " + ex.Message);
-                    }
-                }
-            }
-
-            return false;
+         //USB device so unable to reboot via Windows. Will either need to telnet/serial connect and send an AT command. Waiting on info from supplier  
         }
     }
 }
