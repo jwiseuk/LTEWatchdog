@@ -44,7 +44,7 @@ namespace LTEWatchdog
                     connectionFailuresCount++;
                     LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
 
-                    if (connectionFailuresCount >= 1)  // How many times ping should fail in 10 minute window before executing restart. (default =5. Set to 1 for testing)
+                    if (connectionFailuresCount >= 5)  // How many times ping should fail in 10 minute window before executing restart. (default =5. Set to 1 for testing)
                     {
                         // Execute the method to power cycle the PCIe device
                         PowerCycleLTE();
