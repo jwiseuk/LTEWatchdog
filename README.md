@@ -27,7 +27,7 @@ sc start LTEWatchdogService
 ```
 
 
-The service should now be running and monitoring the internet connection.
+The service should now be running and monitoring the internet connection. Logs will be saved in 'C:\LTEWatchdog_logs'
 
 ## Configuration
 
