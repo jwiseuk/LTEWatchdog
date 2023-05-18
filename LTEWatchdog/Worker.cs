@@ -1,11 +1,4 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Management;
-using System.IO;
 using System.Net.NetworkInformation;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Diagnostics;
 
 namespace LTEWatchdog
@@ -13,9 +6,12 @@ namespace LTEWatchdog
     public class InternetConnectionWorker : BackgroundService
     {
         // Configure Script Variables
+        static int PingFrequency = 1; //Minutes
+        static int ResetWindow = 10; //Length of time until ConnectionFailureLimit is reset (minutes)
         static int ConnectionFailureLimit = 5;
         static string TestAddress = "8.8.8.8";
 
+        // Create Fields
         private readonly ILogger<InternetConnectionWorker> _logger;
         private string logFolderPath = @"C:\LTEWatchdog_logs";
         private string? logFilePath;
@@ -23,79 +19,140 @@ namespace LTEWatchdog
         private Timer? resetCountTimer;
         private Timer? executeTimer;
 
+        // Constructor
         public InternetConnectionWorker(ILogger<InternetConnectionWorker> logger)
         {
             _logger = logger;
-            connectionFailuresCount = 0;
-
-            // Schedule the timer to reset the count every 10 minutes
-            resetCountTimer = new Timer(ResetCount, null, TimeSpan.Zero, TimeSpan.FromMinutes(10));
-
-            // Create a timer for executing the logic every 1 minute
-            executeTimer = new Timer(ExecuteTimerLogic, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
         }
 
+        // Initialize Logic
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            InitializeLogger();
+            try
+            {
+                InitializeLogger();
+                StartTimers();
 
-            // Wait for the cancellation token to be triggered
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-
-            // Stop and dispose the timer
-            executeTimer.Dispose();
+                // Wait for the cancellation token to be triggered
+                await Task.Delay(Timeout.Infinite, stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error during execution: {ex.Message}");
+            }
+            finally
+            {
+                // Stop and dispose the timers
+                executeTimer?.Dispose();
+                resetCountTimer?.Dispose();
+            }
         }
 
-        private void ExecuteTimerLogic(object state)
+        // Start timers
+        private void StartTimers()
         {
-            bool isConnected = CheckNetwork();
-            if (isConnected)
+            try
             {
-                LogMessage("Internet connection is active.");
-                connectionFailuresCount = 0; // Reset the count when the connection is active
-            }
-            else
-            {
-                connectionFailuresCount++;
-                LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
+                // Set the interval for the executeTimer in minutes
+                int executeIntervalMinutes = PingFrequency;
+                int executeIntervalMilliseconds = executeIntervalMinutes * 60 * 1000;
 
-                if (connectionFailuresCount >= ConnectionFailureLimit)
+                // Start the executeTimer
+                executeTimer = new Timer(ExecuteTimerLogic, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(executeIntervalMilliseconds));
+
+                // Set the interval for the resetCountTimer in minutes
+                int resetCountIntervalMinutes = ResetWindow;
+                int resetCountIntervalMilliseconds = resetCountIntervalMinutes * 60 * 1000;
+
+                // Start the resetCountTimer
+                resetCountTimer = new Timer(ResetCount, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(resetCountIntervalMilliseconds));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error while starting timers: {ex.Message}");
+            }
+        }
+
+
+        // Check for active internet connection and force adapter restart on consecutive failed attempts
+        private void ExecuteTimerLogic(object? state)
+        {
+            try
+            {
+                bool isConnected = CheckNetwork();
+                if (isConnected)
                 {
-                    PowerCycleLTE();
-                    connectionFailuresCount = 0; // Reset the count after power cycling the device
+                    LogMessage("Internet connection is active.");
+                    connectionFailuresCount = 0; // Reset the count when the connection is active
+                }
+                else
+                {
+                    connectionFailuresCount++;
+                    LogMessage($"Internet connection is down. Connection failures count: {connectionFailuresCount}");
+
+                    if (connectionFailuresCount >= ConnectionFailureLimit)
+                    {
+                        PowerCycleLTE();
+                        connectionFailuresCount = 0; // Reset the count after power cycling the device
+                    }
                 }
             }
-        }
-
-
-        private void ResetCount(object? state)
-        {
-            connectionFailuresCount = 0; // Reset the count
-        }
-        private void InitializeLogger()
-        {
-            Directory.CreateDirectory(logFolderPath);
-            string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-            logFilePath = Path.Combine(logFolderPath, $"log_{timestamp}.txt");
-
-            // Delete logs older than one month
-            string[] logFiles = Directory.GetFiles(logFolderPath, "log_*.txt");
-            DateTime oneMonthAgo = DateTime.Now.AddMonths(-1);
-            foreach (string file in logFiles)
+            catch (Exception ex)
             {
-                DateTime fileCreationTime = File.GetCreationTime(file);
-                if (fileCreationTime < oneMonthAgo)
-                    {
-                        File.Delete(file);
-                        _logger.LogInformation($"Deleted log file: {file}");
-                    }
-                    else
-                    {
-                        _logger.LogInformation($"No Logs to be deleted");
-                    }
+                _logger.LogError($"Error during timer logic: {ex.Message}");
             }
         }
 
+        // Reset Connection Failures Count
+        private void ResetCount(object? state)
+        {
+            try
+            {
+                connectionFailuresCount = 0; // Reset the count
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error while resetting count: {ex.Message}");
+            }
+        }
+
+        // Create Log dir+file, clean up logs older than one month
+        private void InitializeLogger()
+        {
+            try
+            {
+                Directory.CreateDirectory(logFolderPath);
+                string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+                logFilePath = Path.Combine(logFolderPath, $"log_{timestamp}.txt");
+
+                // Delete logs older than one month
+                string[] logFiles = Directory.GetFiles(logFolderPath, "log_*.txt");
+                DateTime oneMonthAgo = DateTime.Now.AddMonths(-1);
+                int deletedLogsCount = 0; // Count of deleted logs
+
+                foreach (string file in logFiles)
+                {
+                    DateTime fileCreationTime = File.GetCreationTime(file);
+                    if (fileCreationTime < oneMonthAgo)
+                    {
+                        File.Delete(file);
+                        LogMessage($"Deleted log files: {deletedLogsCount}");
+                        deletedLogsCount++;
+                    }
+                }
+
+                if (deletedLogsCount == 0)
+                {
+                    LogMessage("No logs to be deleted.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error while initializing logger: {ex.Message}");
+            }
+        }
+
+        // Ping specified address and log result
         private bool CheckNetwork()
         {
             try
@@ -118,6 +175,7 @@ namespace LTEWatchdog
             return false;
         }
 
+        // Log Message with timestamps
         private void LogMessage(string message)
         {
             try
@@ -136,6 +194,7 @@ namespace LTEWatchdog
             }
         }
 
+        // Disable then Enable network adapters containing specified name
         private void PowerCycleLTE()
         {
             try
