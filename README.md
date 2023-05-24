@@ -15,7 +15,7 @@ To install the LTE Watchdog as a Windows service, follow the steps below:
 4. Run the following command to install the service:
 
 ```
-sc create LTEWatchdogService binPath= "{full path to the extracted executable}"
+sc create LTEWatchdogService binPath= "{full path to the extracted executable}" start= auto
 ```
 
 Replace `LTEWatchdogService` with the desired name for your service and `{full path to the extracted executable}` with the full path to the extracted `LTEWatchdog.exe` file.
