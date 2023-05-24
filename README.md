@@ -6,7 +6,7 @@ LTE Watchdog is a background service written in C# that monitors the internet co
 
 To install the LTE Watchdog as a Windows service, follow the steps below:
 
-1. Download the latest release from the [Releases](https://github.com/your-username/your-repository/releases) page.
+1. Download the latest release from the [Releases](https://github.com/jwiseuk/LTEWatchdog/releases/tag/V1.0) page.
 
 2. Extract the downloaded archive to a directory of your choice.
 
