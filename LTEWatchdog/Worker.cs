@@ -226,5 +226,38 @@ namespace LTEWatchdog
                 LogMessage($"Error while power cycling network adapters: {ex.Message}");
             }
         }
+
+        // Restart ConnectWise Service
+        private void RestartScreenConnectServices()
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "Get-Service | Where-Object { $_.Name -like '*ScreenConnect Client*' } | Restart-Service",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit();
+
+                    if (p.ExitCode == 0)
+                    {
+                        LogMessage("Services containing 'ScreenConnect Client' in their name were restarted successfully.");
+                    }
+                    else
+                    {
+                        LogMessage($"Error while restarting services. Exit code: {p.ExitCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error while restarting services: {ex.Message}");
+            }
+        }
     }
 }
